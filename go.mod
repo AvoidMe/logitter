@@ -3,8 +3,8 @@ module github.com/AvoidMe/logitter
 go 1.21.9
 
 require (
-	github.com/gen2brain/raylib-go/raygui v0.0.0-20240424172746-f406ea403bc8
 	github.com/gen2brain/raylib-go/raylib v0.0.0-20240424172746-f406ea403bc8
+	github.com/mattn/go-sqlite3 v1.14.22
 )
 
 require (
