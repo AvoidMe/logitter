@@ -1,8 +1,8 @@
-// TODO: show text in web-UI
-// TODO: currently backspace incorrectly removes unicode (non-ascii) runes
-// TODO: fix panics
 // TODO: fix backspace speed
+// TODO: text selecting
 // TODO: font searcher
+// TODO: parse flags from cli
+// TODO: fix TODOs
 
 // kill -s SIGUSR1 $(cat ~/.logitter.pid)
 package main
@@ -22,6 +22,8 @@ const (
 
 	LOGITTER_WIDTH  = 650
 	LOGITTER_HEIGHT = 70
+
+	FONT_SIZE = 32
 )
 
 var (
@@ -47,7 +49,18 @@ func showWindow() {
 	hidden = false
 }
 
-func ServeFrontend() {
+func removeLastChar(s string) string {
+	result := ""
+	var char rune
+	for i, v := range s {
+		if i == 0 {
+			char = v
+			continue
+		}
+		result += string(char)
+		char = v
+	}
+	return result
 }
 
 func main() {
@@ -68,7 +81,9 @@ func main() {
 	defer db.Close()
 
 	// Start web-server
-	go ServeFrontend()
+	go ServeFrontend(db)
+
+	<-sigs // Waiting until waked up by signal
 
 	// Setup window
 	rl.InitWindow(650, 70, "")
@@ -88,11 +103,10 @@ func main() {
 		4096,
 	)
 
-	var lastBackspace time.Time
+	var lastBackspace, lastPaste time.Time
 	var text string
 
-	// Hack: hide window and show it at the same time, to have window position centered
-	//			 without noticeable delay
+	// Hack: force window to appear at the center from the beginning
 	hideWindow()
 	showWindow()
 
@@ -112,30 +126,44 @@ func main() {
 			hideWindow()
 			text = ""
 		}
-		// Get next char from queue
-		char := rl.GetCharPressed()
-		if char != 0 {
-			text += string(rune(char))
-		}
 		// Remove char if backspace is pressed
 		if rl.IsKeyDown(rl.KeyBackspace) {
 			// Try to remove chars every 200 milliseconds
 			t := time.Now()
 			if lastBackspace.Add(200*time.Millisecond).Compare(t) <= 0 {
 				lastBackspace = t
-				if len(text) > 0 {
-					text = text[:len(text)-1]
-				}
+				text = removeLastChar(text)
 			}
 		}
 		if rl.IsKeyUp(rl.KeyBackspace) {
 			lastBackspace = time.Time{}
 		}
+		// Copy content from clibpoard
+		if rl.IsKeyDown(rl.KeyLeftControl) && rl.IsKeyDown(rl.KeyV) {
+			// eat V from buffer
+			rl.GetCharPressed()
+			t := time.Now()
+			if lastPaste.Add(300*time.Millisecond).Compare(t) <= 0 {
+				text += rl.GetClipboardText()
+				lastPaste = t
+			}
+		}
+		if rl.IsKeyUp(rl.KeyLeftControl) {
+			lastPaste = time.Time{}
+		}
+		// Get next char from queue
+		char := rl.GetCharPressed()
+		if char != 0 {
+			text += string(rune(char))
+		}
 		// Main Draw loop
 		rl.BeginDrawing()
 		{
 			rl.ClearBackground(rl.RayWhite)
-			rl.DrawTextEx(font, text, rl.Vector2{X: 15, Y: 20}, 32, 0, rl.Black)
+			// if true {
+			// 	rl.DrawTextEx(font, "_", rl.Vector2{X: 15, Y: 20}, FONT_SIZE+10, 0, rl.Maroon)
+			// }
+			rl.DrawTextEx(font, text, rl.Vector2{X: 15, Y: 20}, FONT_SIZE, 0, rl.Black)
 		}
 		rl.EndDrawing()
 	}
