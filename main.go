@@ -1,6 +1,3 @@
-// TODO: fix backspace speed
-// TODO: text selecting
-// TODO: font searcher
 // TODO: parse flags from cli
 // TODO: fix TODOs
 
@@ -8,59 +5,100 @@
 package main
 
 import (
+	"image/color"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
-	"time"
 
-	rl "github.com/gen2brain/raylib-go/raylib"
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
 )
 
 const (
-	ACTIVE_FPS = 60
-
 	LOGITTER_WIDTH  = 650
-	LOGITTER_HEIGHT = 70
+	LOGITTER_HEIGHT = 30
 
-	FONT_SIZE = 32
+	FONT_SIZE = 30
 )
 
-var (
-	hidden = false
+type Theme struct{}
 
-	SCREEN_WIDTH  = 0
-	SCREEN_HEIGHT = 0
-)
+func (m Theme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	switch name {
+	case theme.ColorNameForeground:
+		return color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff} // Black
+	case theme.ColorNameBackground:
+		return color.NRGBA{R: 0xff, G: 0xff, B: 0xff, A: 0x00} // White
+	}
+	return theme.DefaultTheme().Color(name, variant)
+}
 
-func hideWindow() {
-	if !rl.IsWindowState(rl.FlagWindowHidden) {
-		rl.SetWindowState(rl.FlagWindowHidden)
-		hidden = true
+func (m Theme) Icon(name fyne.ThemeIconName) fyne.Resource {
+	return theme.DefaultTheme().Icon(name)
+}
+
+func (m Theme) Font(style fyne.TextStyle) fyne.Resource {
+	return theme.DefaultTheme().Font(style)
+}
+
+func (m Theme) Size(name fyne.ThemeSizeName) float32 {
+	switch name {
+	case theme.SizeNameText:
+		return FONT_SIZE
+	}
+	return theme.DefaultTheme().Size(name)
+}
+
+var _ fyne.Theme = (*Theme)(nil)
+
+type Entry struct {
+	widget.Entry
+	window fyne.Window
+	db     *LogitterDB
+}
+
+func NewEntry(window fyne.Window, db *LogitterDB) *Entry {
+	entry := &Entry{window: window, db: db}
+	entry.ExtendBaseWidget(entry)
+	return entry
+}
+
+func (self *Entry) TypedKey(event *fyne.KeyEvent) {
+	switch event.Name {
+	case fyne.KeyReturn:
+		OnSave(self.db, self, self.window)
+	case fyne.KeyEscape:
+		OnHide(self, self.window)
+	default:
+		self.Entry.TypedKey(event)
 	}
 }
 
-func showWindow() {
-	rl.SetWindowPosition(
-		SCREEN_WIDTH/2-LOGITTER_WIDTH/2,
-		SCREEN_HEIGHT/2-LOGITTER_HEIGHT*2,
-	)
-	rl.ClearWindowState(rl.FlagWindowHidden)
-	hidden = false
+func OnSave(db *LogitterDB, entry *Entry, window fyne.Window) {
+	text := strings.Trim(entry.Text, " \n")
+	if len(text) > 0 {
+		db.InsertRecord(entry.Text)
+	}
+	OnHide(entry, window)
 }
 
-func removeLastChar(s string) string {
-	result := ""
-	var char rune
-	for i, v := range s {
-		if i == 0 {
-			char = v
-			continue
-		}
-		result += string(char)
-		char = v
+func OnHide(entry *Entry, window fyne.Window) {
+	entry.SetText("")
+	window.Hide()
+}
+
+func SignalListener(sigs chan os.Signal, w fyne.Window, entry *Entry) {
+	for {
+		<-sigs
+		w.Show()
+		w.Canvas().Focus(entry)
 	}
-	return result
 }
 
 func main() {
@@ -85,88 +123,31 @@ func main() {
 
 	<-sigs // Waiting until waked up by signal
 
-	// Setup window
-	rl.InitWindow(650, 70, "")
-	rl.SetTargetFPS(ACTIVE_FPS)
-	rl.SetWindowState(rl.FlagWindowUndecorated)
-	rl.SetExitKey(0) // Disable exit on escape by default
+	// Create new window
+	a := app.New()
+	drv := a.Driver().(desktop.Driver)
+	w := drv.CreateSplashWindow()
+	w.SetTitle("Logitter")
+	w.Resize(fyne.NewSize(LOGITTER_WIDTH, LOGITTER_HEIGHT))
+	w.CenterOnScreen()
 
-	monitor := rl.GetCurrentMonitor()
-	SCREEN_HEIGHT = rl.GetMonitorHeight(monitor)
-	SCREEN_WIDTH = rl.GetMonitorWidth(monitor)
+	// Set theme
+	a.Settings().SetTheme(&Theme{})
 
-	// NOTE: Textures/Fonts MUST be loaded after Window initialization (OpenGL context is required)
-	font := rl.LoadFontEx(
-		"",
-		32,
-		nil,
-		4096,
-	)
+	// Create main entry
+	entry := NewEntry(w, db)
+	w.SetContent(container.NewVBox(
+		entry,
+	))
 
-	var lastBackspace, lastPaste time.Time
-	var text string
+	// Listen for next wake-up call
+	go SignalListener(sigs, w, entry)
 
-	// Hack: force window to appear at the center from the beginning
-	hideWindow()
-	showWindow()
+	// Setup events on enter/escape
+	canvas := w.Canvas().(desktop.Canvas)
+	canvas.SetOnKeyDown(entry.TypedKey)
+	w.Canvas().Focus(entry)
 
-	for !rl.WindowShouldClose() {
-		if hidden {
-			<-sigs // Waiting until waked up by signal
-			showWindow()
-		}
-		// Write text in db + hide window on enter
-		if rl.IsKeyPressed(rl.KeyEnter) {
-			hideWindow()
-			db.InsertRecord(text)
-			text = ""
-		}
-		// Just hide window on escape and clear text
-		if rl.IsKeyPressed(rl.KeyEscape) {
-			hideWindow()
-			text = ""
-		}
-		// Remove char if backspace is pressed
-		if rl.IsKeyDown(rl.KeyBackspace) {
-			// Try to remove chars every 200 milliseconds
-			t := time.Now()
-			if lastBackspace.Add(200*time.Millisecond).Compare(t) <= 0 {
-				lastBackspace = t
-				text = removeLastChar(text)
-			}
-		}
-		if rl.IsKeyUp(rl.KeyBackspace) {
-			lastBackspace = time.Time{}
-		}
-		// Copy content from clibpoard
-		if rl.IsKeyDown(rl.KeyLeftControl) && rl.IsKeyDown(rl.KeyV) {
-			// eat V from buffer
-			rl.GetCharPressed()
-			t := time.Now()
-			if lastPaste.Add(300*time.Millisecond).Compare(t) <= 0 {
-				text += rl.GetClipboardText()
-				lastPaste = t
-			}
-		}
-		if rl.IsKeyUp(rl.KeyLeftControl) {
-			lastPaste = time.Time{}
-		}
-		// Get next char from queue
-		char := rl.GetCharPressed()
-		if char != 0 {
-			text += string(rune(char))
-		}
-		// Main Draw loop
-		rl.BeginDrawing()
-		{
-			rl.ClearBackground(rl.RayWhite)
-			// if true {
-			// 	rl.DrawTextEx(font, "_", rl.Vector2{X: 15, Y: 20}, FONT_SIZE+10, 0, rl.Maroon)
-			// }
-			rl.DrawTextEx(font, text, rl.Vector2{X: 15, Y: 20}, FONT_SIZE, 0, rl.Black)
-		}
-		rl.EndDrawing()
-	}
-
-	rl.CloseWindow()
+	// Run program
+	w.ShowAndRun()
 }
