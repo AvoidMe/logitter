@@ -21,3 +21,6 @@
 go.work
 
 logitter.db
+
+# air temp directory
+tmp/

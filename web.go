@@ -41,11 +41,36 @@ func Index(c echo.Context, db *LogitterDB) error {
 	}
 
 	// write response to the client
-	err := templates.ExecuteTemplate(c.Response().Writer, "index", payload)
+	err := templates.ExecuteTemplate(c.Response().Writer, "Index", payload)
 	if err != nil {
 		panic(err) // TODO
 	}
 	return nil
+}
+
+func Search(c echo.Context, db *LogitterDB) error {
+	// get data from db
+	records := db.GetRecordsFilter(c.QueryParam("query"))
+	slices.Reverse(records)
+
+	// make groups by day
+	payload := []IndexPayload{}
+	for _, v := range records {
+		currTime := time.Unix(v.Timestamp, 0)
+		currDay := fmt.Sprintf("%d-%02d-%02d", currTime.Year(), currTime.Month(), currTime.Day())
+		if len(payload) == 0 || payload[len(payload)-1].Day != currDay {
+			payload = append(payload, IndexPayload{Day: currDay})
+		}
+		payload[len(payload)-1].Records = append(payload[len(payload)-1].Records, v)
+	}
+
+	// write response to the client
+	err := templates.ExecuteTemplate(c.Response().Writer, "Items", payload)
+	if err != nil {
+		panic(err) // TODO
+	}
+	return nil
+
 }
 
 func ServeFrontend(db *LogitterDB) {
@@ -56,6 +81,9 @@ func ServeFrontend(db *LogitterDB) {
 
 	e.GET("/", func(c echo.Context) error {
 		return Index(c, db)
+	})
+	e.GET("/search", func(c echo.Context) error {
+		return Search(c, db)
 	})
 
 	e.Logger.Fatal(e.Start(":1323"))

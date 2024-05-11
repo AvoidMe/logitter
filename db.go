@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -55,6 +56,27 @@ func (self *LogitterDB) InsertRecord(text string) {
 
 func (self *LogitterDB) GetRecords() []Record {
 	cursor, err := self.conn.Query(`SELECT id, timestamp, text FROM records;`)
+	if err != nil {
+		panic(err) // TODO
+	}
+	defer cursor.Close()
+	result := []Record{}
+	for cursor.Next() {
+		record := Record{}
+		err := cursor.Scan(&record.ID, &record.Timestamp, &record.Text)
+		if err != nil {
+			panic(err) // TODO
+		}
+		result = append(result, record)
+	}
+	return result
+}
+
+func (self *LogitterDB) GetRecordsFilter(text string) []Record {
+	cursor, err := self.conn.Query(
+		`SELECT id, timestamp, text FROM records WHERE text LIKE ?;`,
+		fmt.Sprintf("%%%s%%", text),
+	)
 	if err != nil {
 		panic(err) // TODO
 	}
