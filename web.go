@@ -59,35 +59,32 @@ func IndexPayloadFromDBRecords(records []Record) []IndexPayload {
 
 func Index(c echo.Context, db *LogitterDB) error {
 	// get data from db
-	records := db.GetRecords()
+	records, err := db.GetRecords()
+	if err != nil {
+		return err
+	}
 	slices.Reverse(records)
 
 	// group by day
 	payload := IndexPayloadFromDBRecords(records)
 
 	// write response to the client
-	err := templates.ExecuteTemplate(c.Response().Writer, "Index", payload)
-	if err != nil {
-		panic(err) // TODO
-	}
-	return nil
+	return templates.ExecuteTemplate(c.Response().Writer, "Index", payload)
 }
 
 func Search(c echo.Context, db *LogitterDB) error {
 	// get data from db
-	records := db.GetRecordsFilter(c.QueryParam("query"))
+	records, err := db.GetRecordsFilter(c.QueryParam("query"))
+	if err != nil {
+		return err
+	}
 	slices.Reverse(records)
 
 	// group by day
 	payload := IndexPayloadFromDBRecords(records)
 
 	// write response to the client
-	err := templates.ExecuteTemplate(c.Response().Writer, "Items", payload)
-	if err != nil {
-		panic(err) // TODO
-	}
-	return nil
-
+	return templates.ExecuteTemplate(c.Response().Writer, "Items", payload)
 }
 
 func ServeFrontend(db *LogitterDB, sigs chan struct{}) {

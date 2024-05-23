@@ -1,10 +1,8 @@
-// TODO: parse flags from cli
-// TODO: fix TODOs
-
 // curl http://localhost:7033/show_ui
 package main
 
 import (
+	"fmt"
 	"image/color"
 	"log"
 	"net/http"
@@ -81,7 +79,10 @@ func (self *Entry) TypedKey(event *fyne.KeyEvent) {
 func OnSave(db *LogitterDB, entry *Entry, window fyne.Window) {
 	text := strings.Trim(entry.Text, " \n")
 	if len(text) > 0 {
-		db.InsertRecord(entry.Text)
+		err := db.InsertRecord(entry.Text)
+		if err != nil {
+			OnError(fmt.Errorf("Unable to write to database: %v", err))
+		}
 	}
 	OnHide(entry, window)
 }
@@ -89,6 +90,15 @@ func OnSave(db *LogitterDB, entry *Entry, window fyne.Window) {
 func OnHide(entry *Entry, window fyne.Window) {
 	entry.SetText("")
 	window.Hide()
+}
+
+func OnError(err error) {
+	fyne.CurrentApp().SendNotification(
+		&fyne.Notification{
+			Title:   "Logitter error",
+			Content: err.Error(),
+		},
+	)
 }
 
 func SignalListener(sigs chan struct{}, w fyne.Window, entry *Entry) {
@@ -108,7 +118,7 @@ func main() {
 	// Checking if another instance of logitter is running
 	// Exit immediately if it is
 	if err := WakeUp(); err == nil {
-		log.Println("Loggitter already running, exiting...")
+		log.Println("Another instance of logitter is already running, wakeup & exit.")
 		return
 	}
 
@@ -116,7 +126,10 @@ func main() {
 	sigs := make(chan struct{}, 100)
 
 	// Init db
-	db := NewDB()
+	db, err := NewDB()
+	if err != nil {
+		log.Fatalf("Error while trying to init database: %v", err)
+	}
 	defer db.Close()
 
 	// Start web-server
@@ -125,7 +138,7 @@ func main() {
 	<-sigs // Waiting until waked up by web-server
 
 	// Create new window
-	a := app.New()
+	a := app.NewWithID("com.logitter")
 	drv := a.Driver().(desktop.Driver)
 	w := drv.CreateSplashWindow()
 	w.SetTitle("Logitter")

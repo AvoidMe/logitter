@@ -19,17 +19,21 @@ type Record struct {
 	Text      string
 }
 
-func NewDB() *LogitterDB {
+func NewDB() (*LogitterDB, error) {
 	db, err := sql.Open("sqlite3", "logitter.db")
 	if err != nil {
-		panic(err) // TODO
+		return nil, err
 	}
 	result := &LogitterDB{conn: db}
-	result.Init()
-	return result
+	err = result.Init()
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	return result, nil
 }
 
-func (self *LogitterDB) Init() {
+func (self *LogitterDB) Init() error {
 	_, err := self.conn.Exec(`
 		-- Primary table
 		CREATE TABLE IF NOT EXISTS records (
@@ -57,12 +61,10 @@ func (self *LogitterDB) Init() {
 			DELETE FROM text_index WHERE rowid = old.rowid;
 		END;
 	`)
-	if err != nil {
-		panic(err) // TODO
-	}
+	return err
 }
 
-func (self *LogitterDB) InsertRecord(text string) {
+func (self *LogitterDB) InsertRecord(text string) error {
 	timestamp := time.Now().Unix()
 	_, err := self.conn.Exec(`
 		INSERT INTO records (timestamp, text) VALUES(?, ?);
@@ -70,15 +72,13 @@ func (self *LogitterDB) InsertRecord(text string) {
 		timestamp,
 		text,
 	)
-	if err != nil {
-		panic(err) // TODO
-	}
+	return err
 }
 
-func (self *LogitterDB) GetRecords() []Record {
+func (self *LogitterDB) GetRecords() ([]Record, error) {
 	cursor, err := self.conn.Query(`SELECT id, timestamp, text FROM records;`)
 	if err != nil {
-		panic(err) // TODO
+		return nil, err
 	}
 	defer cursor.Close()
 	result := []Record{}
@@ -86,14 +86,14 @@ func (self *LogitterDB) GetRecords() []Record {
 		record := Record{}
 		err := cursor.Scan(&record.ID, &record.Timestamp, &record.Text)
 		if err != nil {
-			panic(err) // TODO
+			return nil, err
 		}
 		result = append(result, record)
 	}
-	return result
+	return result, nil
 }
 
-func (self *LogitterDB) GetRecordsFilter(text string) []Record {
+func (self *LogitterDB) GetRecordsFilter(text string) ([]Record, error) {
 	if len(text) == 0 {
 		return self.GetRecords()
 	}
@@ -102,7 +102,7 @@ func (self *LogitterDB) GetRecordsFilter(text string) []Record {
 		fmt.Sprintf("%s OR %s*", text, text),
 	)
 	if err != nil {
-		panic(err) // TODO
+		return nil, err
 	}
 	defer cursor.Close()
 
@@ -113,7 +113,7 @@ func (self *LogitterDB) GetRecordsFilter(text string) []Record {
 		var id int
 		err = cursor.Scan(&id)
 		if err != nil {
-			panic(err) // TODO
+			return nil, err
 		}
 		ids_map[id] = struct{}{}
 	}
@@ -124,21 +124,21 @@ func (self *LogitterDB) GetRecordsFilter(text string) []Record {
 		fmt.Sprintf("%%%s%%", text),
 	)
 	if err != nil {
-		panic(err) // TODO
+		return nil, err
 	}
 	defer cursor.Close()
 	for cursor.Next() {
 		var id int
 		err = cursor.Scan(&id)
 		if err != nil {
-			panic(err) // TODO
+			return nil, err
 		}
 		ids_map[id] = struct{}{}
 	}
 	cursor.Close()
 
 	if len(ids_map) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	var ids []any
@@ -153,7 +153,7 @@ func (self *LogitterDB) GetRecordsFilter(text string) []Record {
 
 	cursor, err = self.conn.Query(sb.String(), ids...)
 	if err != nil {
-		panic(err) // TODO
+		return nil, err
 	}
 	defer cursor.Close()
 	result := []Record{}
@@ -161,11 +161,11 @@ func (self *LogitterDB) GetRecordsFilter(text string) []Record {
 		record := Record{}
 		err := cursor.Scan(&record.ID, &record.Timestamp, &record.Text)
 		if err != nil {
-			panic(err) // TODO
+			return nil, err
 		}
 		result = append(result, record)
 	}
-	return result
+	return result, nil
 }
 
 func (self *LogitterDB) Close() {
