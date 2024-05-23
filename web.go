@@ -90,7 +90,7 @@ func Search(c echo.Context, db *LogitterDB) error {
 
 }
 
-func ServeFrontend(db *LogitterDB) {
+func ServeFrontend(db *LogitterDB, sigs chan struct{}) {
 	e := echo.New()
 
 	e.Use(middleware.Logger())
@@ -102,6 +102,10 @@ func ServeFrontend(db *LogitterDB) {
 	e.GET("/search", func(c echo.Context) error {
 		return Search(c, db)
 	})
+	e.GET("/show_ui", func(c echo.Context) error {
+		sigs <- struct{}{}
+		return nil
+	})
 
-	e.Logger.Fatal(e.Start(":1323"))
+	e.Logger.Fatal(e.Start(":7033"))
 }

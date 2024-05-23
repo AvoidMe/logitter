@@ -1,16 +1,14 @@
 // TODO: parse flags from cli
 // TODO: fix TODOs
 
-// kill -s SIGUSR1 $(cat ~/.logitter.pid)
+// curl http://localhost:7033/show_ui
 package main
 
 import (
 	"image/color"
 	"log"
-	"os"
-	"os/signal"
+	"net/http"
 	"strings"
-	"syscall"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -93,7 +91,7 @@ func OnHide(entry *Entry, window fyne.Window) {
 	window.Hide()
 }
 
-func SignalListener(sigs chan os.Signal, w fyne.Window, entry *Entry) {
+func SignalListener(sigs chan struct{}, w fyne.Window, entry *Entry) {
 	for {
 		<-sigs
 		w.Show()
@@ -101,27 +99,30 @@ func SignalListener(sigs chan os.Signal, w fyne.Window, entry *Entry) {
 	}
 }
 
+func WakeUp() error {
+	_, err := http.Get("http://localhost:7033/show_ui")
+	return err
+}
+
 func main() {
 	// Checking if another instance of logitter is running
 	// Exit immediately if it is
-	if PIDExists() {
+	if err := WakeUp(); err == nil {
 		log.Println("Loggitter already running, exiting...")
 		return
 	}
-	WritePID()
 
 	// Setup signals
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGUSR1)
+	sigs := make(chan struct{}, 100)
 
 	// Init db
 	db := NewDB()
 	defer db.Close()
 
 	// Start web-server
-	go ServeFrontend(db)
+	go ServeFrontend(db, sigs)
 
-	<-sigs // Waiting until waked up by signal
+	<-sigs // Waiting until waked up by web-server
 
 	// Create new window
 	a := app.New()
